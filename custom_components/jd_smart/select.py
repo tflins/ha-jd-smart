@@ -102,15 +102,6 @@ class JdSmartSelect(JdSmartEntity, SelectEntity):
             self.streams.get(self.entity_description.stream_id, "")
         )
 
-    @property
-    def available(self) -> bool:
-        """Return whether the select can currently be controlled."""
-        if not super().available:
-            return False
-        if self.entity_description.stream_id == "Mode":
-            return self.streams.get("Power") == "1"
-        return True
-
     async def async_select_option(self, option: str) -> None:
         """Select option."""
         try:

@@ -31,7 +31,6 @@ from .const import (
     FAST_POLL_DURATION,
     FAST_POLL_INTERVAL,
     LOGGER,
-    UPDATE_AUTH_FAILURE_THRESHOLD,
 )
 
 type JdSmartConfigEntry = ConfigEntry[JdSmartRuntimeData]
@@ -168,15 +167,14 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
     async def _async_handle_update_failure(self, err: JdSmartError) -> None:
         """Handle repeated update failures."""
         self._consecutive_update_failures += 1
-        if self._consecutive_update_failures >= UPDATE_AUTH_FAILURE_THRESHOLD:
-            LOGGER.warning(
-                "JD Smart update failed repeatedly; requesting reauthentication: "
-                "feed_id=%s, failures=%s",
-                self.feed_id,
-                self._consecutive_update_failures,
-            )
-            self._async_create_reauth_notification()
-            raise ConfigEntryAuthFailed from err
+        LOGGER.warning(
+            "JD Smart update failed: feed_id=%s, failures=%s, "
+            "error_type=%s, error=%s",
+            self.feed_id,
+            self._consecutive_update_failures,
+            err.__class__.__name__,
+            err,
+        )
         raise UpdateFailed("Unable to update JD Smart") from err
 
     @callback

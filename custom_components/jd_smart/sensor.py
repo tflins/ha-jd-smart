@@ -166,6 +166,8 @@ class JdSmartSensor(JdSmartEntity, SensorEntity):
     @property
     def native_value(self) -> str | float | None:
         """Return sensor value."""
+        if not self._is_current_duration():
+            return None
         value = self.streams.get(self.entity_description.stream_id)
         if value == "":
             return None
@@ -177,3 +179,13 @@ class JdSmartSensor(JdSmartEntity, SensorEntity):
             except (TypeError, ValueError):
                 return None
         return value
+
+    def _is_current_duration(self) -> bool:
+        """Return whether a duration stream applies to the current cycle."""
+        stream_id = self.entity_description.stream_id
+        state = self.streams.get("State")
+        if stream_id == "RemainingTimeMin":
+            return state in {"1", "4", "5", "6", "14"}
+        if stream_id == "ReserveTimeRemainingMinute":
+            return state == "1"
+        return True

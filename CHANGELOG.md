@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.2
+
+- Only request Home Assistant reauthentication for explicit authentication
+  failures. Temporary device, cloud, or network failures now keep the entity
+  unavailable without incorrectly invalidating a working JD account session.
+- Keep washer settings available while the appliance is powered off, and hide
+  stale cycle duration values when the washer is idle.
+
 ## 0.3.1
 
 - Clear Android legacy global proxy fields during capture restoration and

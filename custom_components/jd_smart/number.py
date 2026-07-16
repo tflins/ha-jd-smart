@@ -52,11 +52,6 @@ class JdSmartReserveHours(JdSmartEntity, NumberEntity):
         except ValueError:
             return None
 
-    @property
-    def available(self) -> bool:
-        """Return whether delay start can currently be configured."""
-        return super().available and self.streams.get("Power") == "1"
-
     async def async_set_native_value(self, value: float) -> None:
         """Set delay start hours."""
         try:

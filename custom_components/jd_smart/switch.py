@@ -79,15 +79,6 @@ class JdSmartSwitch(JdSmartEntity, SwitchEntity):
             return None
         return value == "1"
 
-    @property
-    def available(self) -> bool:
-        """Return whether the switch can currently be controlled."""
-        if not super().available:
-            return False
-        if self.entity_description.stream_id == "BabyLock":
-            return self.streams.get("Power") == "1"
-        return True
-
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn switch on."""
         await self._control(1)
