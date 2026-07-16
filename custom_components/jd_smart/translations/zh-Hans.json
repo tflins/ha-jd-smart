@@ -1,0 +1,237 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "设备已经配置",
+            "auth_refreshed": "京东小家鉴权信息刷新成功。",
+            "auth_updated": "京东小家鉴权信息更新成功。",
+            "no_devices": "没有发现新的设备。已配置的设备会被隐藏。"
+        },
+        "error": {
+            "cannot_connect": "连接失败",
+            "invalid_capture": "抓包 JSON 无效，或者缺少 cookie 和 tgt。",
+            "invalid_auth": "认证无效",
+            "token_refresh_failed": "鉴权刷新失败。请查看通知中的详细原因，或手动填写新的鉴权信息。",
+            "unknown": "未知错误"
+        },
+        "step": {
+            "action": {
+                "data": {
+                    "action": "操作"
+                },
+                "description": "选择要继续执行的京东小家操作。"
+            },
+            "capture": {
+                "data": {
+                    "capture_json": "抓包 JSON"
+                },
+                "data_description": {
+                    "capture_json": "粘贴 tools/reauth.sh 生成的 JSON。该内容包含认证凭据。"
+                },
+                "description": "导入从京东小家 Android App 捕获的认证信息。"
+            },
+            "reauth_confirm": {
+                "data": {
+                    "capture_json": "抓包 JSON"
+                },
+                "description": "运行 tools/reauth.sh capture，然后粘贴生成的 JSON 以恢复认证。"
+            },
+            "user": {
+                "data": {
+                    "app_version": "应用版本",
+                    "channel": "渠道",
+                    "cookie": "Cookie",
+                    "device_id": "设备 ID",
+                    "device_model": "设备型号",
+                    "pin": "PIN",
+                    "platform": "平台",
+                    "platform_version": "平台版本",
+                    "sgm_context": "Sgm-Context",
+                    "tgt": "TGT",
+                    "user_agent": "User-Agent"
+                },
+                "data_description": {
+                    "app_version": "可用抓包中的应用版本。",
+                    "channel": "可用抓包中的请求渠道。",
+                    "cookie": "从京东小家 App 抓包复制的 Cookie。",
+                    "device_id": "公开请求中的 device_id。留空则自动生成。",
+                    "device_model": "请求中的 hard_platform/appplatform 值。",
+                    "pin": "可选京东账号 PIN，用于刷新 token。",
+                    "platform": "可用抓包中的 plat 原值。",
+                    "platform_version": "请求中的 plat_version/appplatformversion 值。",
+                    "sgm_context": "可用抓包中的 Sgm-Context 请求头，可选。",
+                    "tgt": "京东 App 的 A2/wskey/tgt token。",
+                    "user_agent": "可用抓包中的 User-Agent。"
+                },
+                "description": "输入京东小家 App 抓包中的认证信息。集成会在认证后自动拉取设备列表。"
+            },
+            "select_device": {
+                "data": {
+                    "selected_devices": "设备"
+                },
+                "description": "选择一个或多个要添加的设备。已配置的设备会被隐藏。"
+            }
+        }
+    },
+    "selector": {
+        "action": {
+            "options": {
+                "add_device": "添加设备",
+                "import_capture": "导入抓包 JSON",
+                "manual_auth": "手动填写鉴权信息",
+                "refresh_auth": "刷新鉴权信息"
+            }
+        }
+    },
+    "entity": {
+        "binary_sensor": {
+            "washer_complete": {
+                "name": "洗衣完成"
+            },
+            "washer_problem": {
+                "name": "洗衣机故障"
+            },
+            "washer_running": {
+                "name": "洗衣机运行中"
+            }
+        },
+        "button": {
+            "washer_pause": {
+                "name": "暂停"
+            },
+            "washer_start": {
+                "name": "启动"
+            }
+        },
+        "climate": {
+            "air_conditioner": {
+                "name": "空调",
+                "state_attributes": {
+                    "fan_mode": {
+                        "state": {
+                            "auto": "自动",
+                            "high": "高风",
+                            "low": "低风",
+                            "medium": "中风",
+                            "silent": "静音"
+                        }
+                    },
+                    "preset_mode": {
+                        "state": {
+                            "child": "儿童睡眠",
+                            "elderly": "老人睡眠",
+                            "normal": "一般睡眠",
+                            "off": "关闭",
+                            "youth": "青年睡眠"
+                        }
+                    },
+                    "swing_mode": {
+                        "state": {
+                            "auto": "自动",
+                            "direction_1": "风向 1",
+                            "direction_2": "风向 2",
+                            "direction_3": "风向 3",
+                            "direction_4": "风向 4",
+                            "direction_5": "风向 5",
+                            "direction_6": "风向 6",
+                            "swing": "扫风"
+                        }
+                    }
+                }
+            }
+        },
+        "select": {
+            "horizontal_direction": {
+                "name": "左右风",
+                "state": {
+                    "direct": "定向",
+                    "swing": "扫风"
+                }
+            },
+            "washer_mode": {
+                "name": "洗涤程序",
+                "state": {
+                    "baby": "婴童",
+                    "boil_95": "煮洗 95℃",
+                    "bra_care": "Bra 呵护洗",
+                    "drum_clean": "筒自洁",
+                    "new_clothes": "新衣物首洗",
+                    "quick_wash": "快洗",
+                    "shirt_collar": "衬衣衣领净",
+                    "spin_only": "单脱水",
+                    "sports": "运动即时洗",
+                    "standard": "标准",
+                    "towel_sanitize": "毛巾除菌洗"
+                }
+            }
+        },
+        "number": {
+            "washer_reserve_hours": {
+                "name": "预约启动"
+            }
+        },
+        "sensor": {
+            "clean_runtime": {
+                "name": "清洁累计时间"
+            },
+            "current_humidity": {
+                "name": "当前湿度"
+            },
+            "current_temperature": {
+                "name": "当前温度"
+            },
+            "mdp_mode": {
+                "name": "MDP 模式"
+            },
+            "protection_state": {
+                "name": "保护状态"
+            },
+            "runtime_total": {
+                "name": "运行总时长"
+            },
+            "speaker_raw": {
+                "name": "蜂鸣器原始值"
+            },
+            "washer_error_code": {
+                "name": "故障码"
+            },
+            "washer_remaining_time": {
+                "name": "剩余时间"
+            },
+            "washer_reserve_remaining": {
+                "name": "预约剩余"
+            },
+            "washer_state": {
+                "name": "洗衣机状态",
+                "state": {
+                    "complete": "洗衣完成",
+                    "paused": "暂停",
+                    "reserved": "预约中",
+                    "rinsing": "漂洗中",
+                    "spinning": "脱水中",
+                    "standby": "待机",
+                    "washing": "洗涤中"
+                }
+            },
+            "tvoc": {
+                "name": "TVOC"
+            }
+        },
+        "switch": {
+            "backlight": {
+                "name": "背光灯"
+            },
+            "display": {
+                "name": "屏显"
+            },
+            "powerful": {
+                "name": "强力"
+            },
+            "washer_child_lock": {
+                "name": "童锁"
+            },
+            "washer_power": {
+                "name": "电源"
+            }
+        }
+    }
+}

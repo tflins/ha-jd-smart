@@ -1,0 +1,35 @@
+name: Device support request
+description: Request support for additional JD Smart device streams
+title: "[Device]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include Cookies, `tgt` values, capture JSON, or complete HTTP requests. Only sanitized stream names and values are needed.
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: JD Xiaojia app version
+  - type: textarea
+    id: streams
+    attributes:
+      label: Sanitized streams
+      description: List stream names, safe example values, and the behavior each value represents.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: controls
+    attributes:
+      label: Requested controls and states
+      description: Describe the Home Assistant entities and behavior you expect.
+    validations:
+      required: true
