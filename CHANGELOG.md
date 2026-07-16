@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.1
+
+- Clear Android legacy global proxy fields during capture restoration and
+  cleanup so the phone does not retain an unreachable proxy after the helper
+  exits.
+
 ## 0.3.0
 
 - Add MiniJ washing-machine entities for power, program selection, start,

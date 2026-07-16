@@ -43,6 +43,19 @@ ensure_device() {
   fi
 }
 
+clear_device_proxy() {
+  adb shell settings put global http_proxy :0 >/dev/null 2>&1 || true
+  local key
+  for key in \
+    http_proxy \
+    global_http_proxy_host \
+    global_http_proxy_port \
+    global_http_proxy_exclusion_list \
+    global_proxy_pac_url; do
+    adb shell settings delete global "$key" >/dev/null 2>&1 || true
+  done
+}
+
 detect_proxy_host() {
   if [[ -n "${JD_SMART_PROXY_HOST:-}" ]]; then
     echo "$JD_SMART_PROXY_HOST"
@@ -120,7 +133,7 @@ capture_auth() {
       wait "$proxy_pid" >/dev/null 2>&1 || true
     fi
     if [[ -z "$previous_proxy" || "$previous_proxy" == "null" || "$previous_proxy" == ":0" ]]; then
-      adb shell settings delete global http_proxy >/dev/null 2>&1 || true
+      clear_device_proxy
     else
       adb shell settings put global http_proxy "$previous_proxy" >/dev/null
     fi
@@ -158,7 +171,7 @@ capture_auth() {
 cleanup_device() {
   require_command adb
   ensure_device
-  adb shell settings delete global http_proxy >/dev/null 2>&1 || true
+  clear_device_proxy
   adb shell rm -f "$PHONE_CERT"
   echo "Proxy cleared and the downloaded certificate file removed."
   echo "Remove the installed user CA certificate from Android settings separately."
