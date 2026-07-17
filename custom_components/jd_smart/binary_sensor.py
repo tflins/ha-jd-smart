@@ -23,6 +23,7 @@ class JdSmartBinarySensorDescription(BinarySensorEntityDescription):
 
     stream_id: str
     active_values: frozenset[str]
+    nonzero_is_active: bool = False
 
 
 BINARY_SENSORS: tuple[JdSmartBinarySensorDescription, ...] = (
@@ -45,7 +46,8 @@ BINARY_SENSORS: tuple[JdSmartBinarySensorDescription, ...] = (
         translation_key="washer_problem",
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
-        active_values=frozenset(str(value) for value in range(1, 58)),
+        active_values=frozenset(),
+        nonzero_is_active=True,
     ),
 )
 
@@ -85,4 +87,6 @@ class JdSmartBinarySensor(JdSmartEntity, BinarySensorEntity):
         value = self.streams.get(self.entity_description.stream_id)
         if value in (None, ""):
             return None
+        if self.entity_description.nonzero_is_active:
+            return value != "0"
         return value in self.entity_description.active_values

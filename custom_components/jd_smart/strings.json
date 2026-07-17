@@ -2,6 +2,7 @@
   "config": {
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "account_mismatch": "The imported authentication belongs to a different JD account. Remove the existing JD Smart entry before configuring another account.",
       "auth_refreshed": "JD Smart authentication was refreshed successfully.",
       "auth_updated": "JD Smart authentication was updated successfully.",
       "no_devices": "No new devices were found. Already configured devices are hidden."

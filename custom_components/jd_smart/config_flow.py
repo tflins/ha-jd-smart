@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 from typing import Any
@@ -115,9 +116,7 @@ def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_SGM_CONTEXT, default=defaults.get(CONF_SGM_CONTEXT, "")
             ): str,
-            vol.Optional(
-                CONF_DEVICE_ID, default=defaults.get(CONF_DEVICE_ID, "")
-            ): str,
+            vol.Optional(CONF_DEVICE_ID, default=defaults.get(CONF_DEVICE_ID, "")): str,
             vol.Optional(
                 CONF_PLATFORM, default=defaults.get(CONF_PLATFORM, DEFAULT_PLATFORM)
             ): str,
@@ -131,9 +130,7 @@ def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): str,
             vol.Optional(
                 CONF_PLATFORM_VERSION,
-                default=defaults.get(
-                    CONF_PLATFORM_VERSION, DEFAULT_PLATFORM_VERSION
-                ),
+                default=defaults.get(CONF_PLATFORM_VERSION, DEFAULT_PLATFORM_VERSION),
             ): str,
             vol.Optional(
                 CONF_CHANNEL, default=defaults.get(CONF_CHANNEL, DEFAULT_CHANNEL)
@@ -149,7 +146,10 @@ def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
 def _clean_input(user_input: dict[str, Any]) -> dict[str, Any]:
     """Clean user input and fill defaults."""
     data = {key: value for key, value in user_input.items() if value != ""}
-    data.setdefault(CONF_DEVICE_ID, DEFAULT_DEVICE_ID or str(secrets.randbelow(10**20)))
+    if CONF_PIN not in data and (cookie := data.get(CONF_COOKIE)):
+        if pin := _cookie_pin(cookie):
+            data[CONF_PIN] = pin
+    data.setdefault(CONF_DEVICE_ID, DEFAULT_DEVICE_ID or _generate_device_id())
     data.setdefault(CONF_PLATFORM, DEFAULT_PLATFORM)
     data.setdefault(CONF_APP_VERSION, DEFAULT_APP_VERSION)
     data.setdefault(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
@@ -157,6 +157,24 @@ def _clean_input(user_input: dict[str, Any]) -> dict[str, Any]:
     data.setdefault(CONF_CHANNEL, DEFAULT_CHANNEL)
     data.setdefault(CONF_USER_AGENT, DEFAULT_USER_AGENT)
     return data
+
+
+def _generate_device_id() -> str:
+    """Generate a stable-looking random 20-digit request device ID."""
+    return str(secrets.randbelow(9 * 10**19) + 10**19)
+
+
+def _cookie_pin(cookie: str) -> str:
+    """Return the decoded account PIN from a Cookie header."""
+    values: dict[str, str] = {}
+    for item in cookie.split(";"):
+        key, separator, value = item.partition("=")
+        if separator:
+            values[key.strip().lower()] = unquote(value.strip())
+    return next(
+        (values[key] for key in ("pin", "pt_pin", "pwdt_id") if values.get(key)),
+        "",
+    )
 
 
 def _parse_capture_json(raw_value: str) -> dict[str, Any]:
@@ -184,19 +202,7 @@ def _parse_capture_json(raw_value: str) -> dict[str, Any]:
         if value is not None:
             data[key] = value
     if CONF_PIN not in data and (cookie := data.get(CONF_COOKIE)):
-        cookie_values: dict[str, str] = {}
-        for item in cookie.split(";"):
-            key, separator, value = item.partition("=")
-            if separator:
-                cookie_values[key.strip().lower()] = unquote(value.strip())
-        data[CONF_PIN] = next(
-            (
-                cookie_values[key]
-                for key in ("pin", "pt_pin", "pwdt_id")
-                if cookie_values.get(key)
-            ),
-            "",
-        )
+        data[CONF_PIN] = _cookie_pin(cookie)
     if not data.get(CONF_COOKIE) or not data.get(CONF_TGT):
         raise ValueError("Capture data must include cookie and tgt")
     return _clean_input(data)
@@ -227,9 +233,7 @@ def _client_from_data(hass: HomeAssistant, data: dict[str, Any]) -> JdSmartClien
 async def _refresh_auth(hass: HomeAssistant, data: dict[str, Any]) -> None:
     """Refresh auth data and persist refreshed values into data."""
     try:
-        new_tgt, new_cookie = await _client_from_data(
-            hass, data
-        ).async_refresh_token()
+        new_tgt, new_cookie = await _client_from_data(hass, data).async_refresh_token()
     except JdSmartTokenRefreshError as err:
         _notify_token_refresh_failed(hass, err)
         raise
@@ -329,22 +333,24 @@ class JdSmartConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def _async_process_auth(
-        self, data: dict[str, Any]
-    ) -> ConfigFlowResult:
+    async def _async_process_auth(self, data: dict[str, Any]) -> ConfigFlowResult:
         """Validate and persist imported or manually entered auth data."""
         devices = await _fetch_devices(self.hass, data)
-        if self._async_current_entries():
+        entries = self._async_current_entries()
+        if entries:
+            if not all(_same_account(entry.data, data) for entry in entries):
+                return self.async_abort(reason="account_mismatch")
             await self._async_update_auth_entries(data)
             return self.async_abort(reason="auth_updated")
 
+        if pin := data.get(CONF_PIN):
+            await self.async_set_unique_id(hashlib.sha256(pin.encode()).hexdigest())
+            self._abort_if_unique_id_configured()
         self._auth_data = data
         self._target_entry = None
         configured_feed_ids = _configured_feed_ids(self._async_current_entries())
         self._devices = [
-            device
-            for device in devices
-            if device.feed_id not in configured_feed_ids
+            device for device in devices if device.feed_id not in configured_feed_ids
         ]
         if not self._devices:
             return self.async_abort(reason="no_devices")
@@ -429,7 +435,9 @@ class JdSmartConfigFlow(ConfigFlow, domain=DOMAIN):
         devices = getattr(self, "_devices", [])
         if user_input is not None:
             selected = user_input[CONF_SELECTED_DEVICES]
-            selected_feed_ids = {selected} if isinstance(selected, str) else set(selected)
+            selected_feed_ids = (
+                {selected} if isinstance(selected, str) else set(selected)
+            )
             selected_devices = [
                 device for device in devices if device.feed_id in selected_feed_ids
             ]
@@ -558,8 +566,7 @@ def _merge_entry_devices(
 ) -> dict[str, Any]:
     """Merge selected devices into an existing entry."""
     devices = {
-        device[CONF_FEED_ID]: dict(device)
-        for device in _entry_devices(entry_data)
+        device[CONF_FEED_ID]: dict(device) for device in _entry_devices(entry_data)
     }
     for device in selected_devices:
         devices[device.feed_id] = {
@@ -587,6 +594,13 @@ def _primary_entry(entries):
 def _auth_changed(old_data: dict[str, Any], new_data: dict[str, Any]) -> bool:
     """Return whether auth fields changed."""
     return any(old_data.get(key) != new_data.get(key) for key in AUTH_KEYS)
+
+
+def _same_account(old_data: dict[str, Any], new_data: dict[str, Any]) -> bool:
+    """Return whether two credential sets identify the same JD account."""
+    old_pin = old_data.get(CONF_PIN) or _cookie_pin(old_data.get(CONF_COOKIE, ""))
+    new_pin = new_data.get(CONF_PIN) or _cookie_pin(new_data.get(CONF_COOKIE, ""))
+    return not old_pin or not new_pin or old_pin == new_pin
 
 
 def _configured_feed_ids(entries) -> set[str]:

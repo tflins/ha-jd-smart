@@ -5,7 +5,15 @@ from __future__ import annotations
 import json
 import unittest
 
-from custom_components.jd_smart.config_flow import _parse_capture_json
+from bootstrap import install_optional_ha_stubs
+
+install_optional_ha_stubs()
+
+from custom_components.jd_smart.config_flow import (  # noqa: E402
+    _clean_input,
+    _parse_capture_json,
+    _same_account,
+)
 
 
 class CaptureImportTests(unittest.TestCase):
@@ -57,6 +65,23 @@ class CaptureImportTests(unittest.TestCase):
         """Both cookie and TGT are required."""
         with self.assertRaises(ValueError):
             _parse_capture_json(json.dumps({"tgt": "test-token"}))
+
+    def test_empty_device_id_generates_unique_request_identity(self) -> None:
+        """Manual setup must not reuse a published device identifier."""
+        first = _clean_input({"cookie": "pin=test; wskey=token", "tgt": "token"})
+        second = _clean_input({"cookie": "pin=test; wskey=token", "tgt": "token"})
+
+        self.assertRegex(first["device_id"], r"^\d{20}$")
+        self.assertNotEqual(first["device_id"], second["device_id"])
+
+    def test_different_accounts_are_not_merged(self) -> None:
+        """Importing another account must not overwrite configured credentials."""
+        self.assertFalse(
+            _same_account(
+                {"cookie": "pin=first; wskey=token"},
+                {"cookie": "pin=second; wskey=token"},
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -23,4 +23,5 @@ home-assistant.log*
 jd-smart-auth*.json
 .reauth/
 *.txt
+!requirements-test.txt
 dumpDex/

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,7 +15,7 @@ import time
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from aiohttp import ClientError, ClientResponseError, ClientSession
+from aiohttp import ClientError, ClientResponseError, ClientSession, ClientTimeout
 from cryptography.hazmat.primitives import hashes, padding as crypto_padding
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -52,9 +53,9 @@ WJLOGIN_RANDOM_KEY_ALPHABET = (
 )
 WANGYIN_HANDSHAKE_URL = "http://aks.jdpay.com/handshake"
 WANGYIN_SEED_WRAP_KEY = bytes.fromhex(
-    "1234567890ABCDEF1234567890ABCDEF"
-    "1234567890ABCDEF1234567890ABCDEF"
+    "1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
 )
+REQUEST_TIMEOUT = ClientTimeout(total=20, sock_connect=10)
 
 
 class JdSmartError(Exception):
@@ -77,8 +78,16 @@ class JdSmartControlError(JdSmartError):
     """Raised when control fails."""
 
 
-class JdSmartTokenRefreshError(JdSmartAuthError):
+class JdSmartTokenRefreshError(JdSmartError):
     """Raised when JD login token refresh fails."""
+
+
+class JdSmartTokenRefreshAuthError(JdSmartTokenRefreshError):
+    """Raised when JD login credentials can no longer be refreshed."""
+
+
+class JdSmartTokenRefreshCannotConnectError(JdSmartTokenRefreshError):
+    """Raised when the JD login service cannot be reached."""
 
 
 @dataclass(slots=True)
@@ -116,11 +125,20 @@ class JdSmartSnapshot:
     @classmethod
     def from_result(cls, result: str | dict[str, Any]) -> JdSmartSnapshot:
         """Create snapshot from API result."""
-        data = json.loads(result) if isinstance(result, str) else result
-        streams = {
-            item["stream_id"]: str(item.get("current_value", ""))
-            for item in data.get("streams", [])
-        }
+        try:
+            data = json.loads(result) if isinstance(result, str) else result
+            if not isinstance(data, dict):
+                raise TypeError("Snapshot result must be an object")
+            raw_streams = data.get("streams", [])
+            if not isinstance(raw_streams, list):
+                raise TypeError("Snapshot streams must be a list")
+            streams = {
+                str(item["stream_id"]): str(item.get("current_value", ""))
+                for item in raw_streams
+                if isinstance(item, dict)
+            }
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
+            raise JdSmartCannotConnectError("Invalid JD Smart snapshot") from err
         return cls(
             digest=str(data.get("digest", "")),
             status=str(data.get("status", "")),
@@ -519,10 +537,10 @@ def _build_refresh_a2_tlv(
 def _parse_refresh_a2_response(packet: bytes) -> str:
     """Parse refreshA2 response packet and return the refreshed TGT."""
     if len(packet) < 31:
-        raise JdSmartTokenRefreshError("WJLogin response packet too short")
+        raise JdSmartTokenRefreshAuthError("WJLogin response packet too short")
     reply_code = packet[30]
     if reply_code != 0:
-        raise JdSmartTokenRefreshError(f"WJLogin reply code: {reply_code}")
+        raise JdSmartTokenRefreshAuthError(f"WJLogin reply code: {reply_code}")
 
     pos = 31
     while pos + 4 <= len(packet):
@@ -535,7 +553,7 @@ def _parse_refresh_a2_response(packet: bytes) -> str:
         if tag == 10 and len(value) >= 2:
             return _base64_url_no_padding(value)
         pos += length
-    raise JdSmartTokenRefreshError("WJLogin response did not include a new TGT")
+    raise JdSmartTokenRefreshAuthError("WJLogin response did not include a new TGT")
 
 
 def _parse_cookie(cookie: str) -> list[tuple[str, str]]:
@@ -585,6 +603,8 @@ class JdSmartClient:
         self.credentials = credentials
         self.profile = profile
         self._wangyin_session: _WangyinSession | None = None
+        self._wangyin_lock = asyncio.Lock()
+        self._token_refresh_lock = asyncio.Lock()
 
     def _public_query(self) -> dict[str, str]:
         """Build public query parameters."""
@@ -645,6 +665,7 @@ class JdSmartClient:
                     "Host": "aks.jdpay.com:80",
                     "wpe": "jdjr",
                 },
+                timeout=REQUEST_TIMEOUT,
             ) as response:
                 text = await response.text()
                 if response.status != HTTPStatus.OK:
@@ -652,12 +673,16 @@ class JdSmartClient:
                         f"Wangyin handshake HTTP status: {response.status}"
                     )
         except (ClientError, TimeoutError) as err:
-            raise JdSmartCannotConnectError("Unable to reach Wangyin handshake") from err
+            raise JdSmartCannotConnectError(
+                "Unable to reach Wangyin handshake"
+            ) from err
 
         try:
             decoded = base64.b64decode(text)
         except ValueError as err:
-            raise JdSmartCannotConnectError("Invalid Wangyin handshake response") from err
+            raise JdSmartCannotConnectError(
+                "Invalid Wangyin handshake response"
+            ) from err
         if len(decoded) < 0x106:
             raise JdSmartCannotConnectError("Wangyin handshake response too short")
         code = int.from_bytes(decoded[4:8], "little")
@@ -695,6 +720,15 @@ class JdSmartClient:
         raw_body: str,
     ) -> dict[str, Any]:
         """POST a Wangyin-encrypted request."""
+        async with self._wangyin_lock:
+            return await self._request_wangyin_json_locked(path, raw_body)
+
+    async def _request_wangyin_json_locked(
+        self,
+        path: str,
+        raw_body: str,
+    ) -> dict[str, Any]:
+        """POST while holding the shared Wangyin session lock."""
         for attempt in range(2):
             raw_query = _json_dumps(self._public_query())
             ep = await self._async_wangyin_encode(raw_query)
@@ -741,7 +775,10 @@ class JdSmartClient:
         )
         try:
             async with self._session.post(
-                url, data=raw_body, headers=headers
+                url,
+                data=raw_body,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
             ) as response:
                 text = await response.text()
                 LOGGER.debug(
@@ -801,7 +838,16 @@ class JdSmartClient:
             raise JdSmartError(f"Unexpected status: {payload.get('status')}")
         return payload
 
-    async def async_refresh_token(self) -> tuple[str, str]:
+    async def async_refresh_token(
+        self, stale_tgt: str | None = None
+    ) -> tuple[str, str]:
+        """Refresh credentials once for all coordinators sharing this client."""
+        async with self._token_refresh_lock:
+            if stale_tgt is not None and stale_tgt != self.credentials.tgt:
+                return self.credentials.tgt, self.credentials.cookie
+            return await self._async_refresh_token()
+
+    async def _async_refresh_token(self) -> tuple[str, str]:
         """Refresh the JD WJLogin A2 token and update local credentials."""
         tlv = _build_refresh_a2_tlv(self.credentials, self.profile)
         random_key, raw_body = _wj_encrypt_msg(tlv)
@@ -814,6 +860,7 @@ class JdSmartClient:
                     "Content-Type": "application/x-www-form-urlencoded",
                     "User-Agent": f"Android WJLoginSDK {WJLOGIN_SDK_VERSION}",
                 },
+                timeout=REQUEST_TIMEOUT,
             ) as response:
                 text = await response.text()
                 if response.status != HTTPStatus.OK:
@@ -823,11 +870,18 @@ class JdSmartClient:
                         response.status,
                         len(text),
                     )
-                    raise JdSmartTokenRefreshError(
-                        f"WJLogin HTTP status: {response.status}"
-                    )
+                    error = f"WJLogin HTTP status: {response.status}"
+                    if response.status in {
+                        HTTPStatus.BAD_REQUEST,
+                        HTTPStatus.UNAUTHORIZED,
+                        HTTPStatus.FORBIDDEN,
+                    }:
+                        raise JdSmartTokenRefreshAuthError(error)
+                    raise JdSmartTokenRefreshCannotConnectError(error)
         except (ClientError, TimeoutError) as err:
-            raise JdSmartTokenRefreshError("Unable to reach WJLogin") from err
+            raise JdSmartTokenRefreshCannotConnectError(
+                "Unable to reach WJLogin"
+            ) from err
 
         packet = _wj_decrypt_msg(text, random_key)
         if packet is None:
@@ -869,16 +923,18 @@ class JdSmartClient:
             "version": "2.0",
         }
         raw_body = _json_dumps({"json": inner})
-        url = (
-            f"{JD_SMART_BASE_URL}{SNAPSHOT_PATH}"
-            f"?{urlencode(self._public_query())}"
-        )
+        url = f"{JD_SMART_BASE_URL}{SNAPSHOT_PATH}?{urlencode(self._public_query())}"
         payload = await self._request_json(
             url,
             raw_body,
             headers=self._headers(raw_body),
         )
-        return JdSmartSnapshot.from_result(payload["result"])
+        result = payload.get("result")
+        if result is None:
+            raise JdSmartCannotConnectError(
+                "Snapshot response did not include a result"
+            )
+        return JdSmartSnapshot.from_result(result)
 
     def _control_body(self, feed_id: str, commands: dict[str, Any]) -> str:
         """Build control business body."""
@@ -906,7 +962,15 @@ class JdSmartClient:
         )
 
         payload = await self._request_wangyin_json(CONTROL_PATH, raw_body)
-        result = json.loads(payload["result"])
+        raw_result = payload.get("result")
+        try:
+            result = (
+                json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+            )
+        except json.JSONDecodeError as err:
+            raise JdSmartControlError("Invalid control response") from err
+        if not isinstance(result, dict):
+            raise JdSmartControlError("Control response did not include a result")
         LOGGER.info(
             "JD Smart control result: feed_id=%s, control_ret=%s, "
             "status=%s, has_streams=%s, digest=%s",
@@ -916,12 +980,13 @@ class JdSmartClient:
             "streams" in result,
             result.get("digest"),
         )
-        if "streams" in result:
+        streams = result.get("streams")
+        if streams:
             return JdSmartSnapshot.from_result(result)
-        if result.get("control_ret") == "done":
+        if streams == [] or result.get("control_ret") == "done":
             return None
         if result.get("status") in (1, "1"):
-            return JdSmartSnapshot.from_result(result)
+            return None
         LOGGER.warning(
             "JD Smart unexpected control result: feed_id=%s, result=%s",
             feed_id,

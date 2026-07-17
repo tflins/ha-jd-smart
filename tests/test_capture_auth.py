@@ -5,10 +5,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import stat
+import sys
 import tempfile
+import types
 import unittest
 
-from tools.capture_auth import _cookie_pin, _usable_cookie, _write_private_json
+mitmproxy = types.ModuleType("mitmproxy")
+mitmproxy.ctx = types.SimpleNamespace()
+mitmproxy.http = types.SimpleNamespace(HTTPFlow=object)
+sys.modules.setdefault("mitmproxy", mitmproxy)
+
+from tools.capture_auth import (  # noqa: E402
+    _cookie_pin,
+    _usable_cookie,
+    _write_private_json,
+)
 
 
 class CaptureHelperTests(unittest.TestCase):
@@ -32,10 +43,13 @@ class CaptureHelperTests(unittest.TestCase):
             _write_private_json(path, {"cookie": "secret", "tgt": "secret"})
 
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-            self.assertEqual(json.loads(path.read_text()), {
-                "cookie": "secret",
-                "tgt": "secret",
-            })
+            self.assertEqual(
+                json.loads(path.read_text()),
+                {
+                    "cookie": "secret",
+                    "tgt": "secret",
+                },
+            )
 
 
 if __name__ == "__main__":

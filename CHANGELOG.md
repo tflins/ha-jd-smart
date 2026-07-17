@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.4
+
+- Distinguish transient WJLogin failures from rejected credentials so temporary
+  network or server errors no longer trigger unnecessary reauthentication.
+- Serialize shared token refreshes and Wangyin requests across multiple devices.
+- Preserve the latest full state when control or snapshot responses contain no
+  streams, and merge partial control responses into the current snapshot.
+- Add explicit cloud request timeouts and reject malformed or offline snapshots.
+- Generate per-installation request device IDs and prevent credentials from a
+  different JD account from overwriting an existing entry.
+- Advertise optional climate controls only when their streams are available,
+  and improve unknown switch and washer error states.
+- Run integration unit tests in GitHub Actions.
+
 ## 0.3.3
 
 - Keep the last successful device snapshot for up to five minutes during

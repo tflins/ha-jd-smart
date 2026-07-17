@@ -75,7 +75,7 @@ class JdSmartSwitch(JdSmartEntity, SwitchEntity):
     def is_on(self) -> bool | None:
         """Return switch state."""
         value = self.streams.get(self.entity_description.stream_id)
-        if value == "":
+        if value in (None, ""):
             return None
         return value == "1"
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +20,8 @@ from .api import (
     JdSmartClient,
     JdSmartError,
     JdSmartSnapshot,
+    JdSmartTokenRefreshAuthError,
+    JdSmartTokenRefreshCannotConnectError,
     JdSmartTokenRefreshError,
 )
 from .const import (
@@ -70,32 +71,49 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
         self.feed_id = feed_id
         self.device_name = device_name
         self._fast_poll_cancel: Callable[[], None] | None = None
-        self._token_refresh_lock = asyncio.Lock()
         self._consecutive_update_failures = 0
         self._last_successful_update: datetime | None = None
-        self._update_unavailable_logged = False
 
     async def _async_update_data(self) -> JdSmartSnapshot:
         """Fetch latest snapshot."""
         digest = self.data.digest if self.data else ""
+        stale_tgt = self.client.credentials.tgt
         try:
             snapshot = await self.client.async_get_snapshot(self.feed_id, digest)
-            return self._handle_update_success(snapshot)
+            return self._handle_update_success(self._validate_snapshot(snapshot))
         except JdSmartAuthError:
             LOGGER.info("JD Smart snapshot authentication failed; refreshing token")
-            try:
-                await self._async_refresh_token()
-                snapshot = await self.client.async_get_snapshot(self.feed_id, digest)
-                return self._handle_update_success(snapshot)
-            except JdSmartAuthError as refresh_err:
-                self._async_create_reauth_notification()
-                raise ConfigEntryAuthFailed from refresh_err
-            except JdSmartCannotConnectError as refresh_err:
-                if self.data is None:
-                    raise ConfigEntryNotReady from refresh_err
-                return self._handle_update_failure(refresh_err)
-            except JdSmartError as refresh_err:
-                return self._handle_update_failure(refresh_err)
+            return await self._async_refresh_and_retry(digest, stale_tgt)
+        except JdSmartCannotConnectError as err:
+            if self.data is None:
+                raise ConfigEntryNotReady from err
+            return self._handle_update_failure(err)
+        except JdSmartError as err:
+            return self._handle_update_failure(err)
+
+    async def _async_refresh_and_retry(
+        self, digest: str, stale_tgt: str
+    ) -> JdSmartSnapshot:
+        """Refresh expired credentials and retry the snapshot once."""
+        try:
+            await self._async_refresh_token(stale_tgt)
+        except JdSmartTokenRefreshCannotConnectError as err:
+            if self.data is None:
+                raise ConfigEntryNotReady from err
+            return self._handle_update_failure(err)
+        except JdSmartTokenRefreshAuthError as err:
+            self._async_create_reauth_notification()
+            raise ConfigEntryAuthFailed from err
+        except JdSmartTokenRefreshError as err:
+            self._async_create_token_refresh_failed_notification(err)
+            return self._handle_update_failure(err)
+
+        try:
+            snapshot = await self.client.async_get_snapshot(self.feed_id, digest)
+            return self._handle_update_success(self._validate_snapshot(snapshot))
+        except JdSmartAuthError as err:
+            self._async_create_reauth_notification()
+            raise ConfigEntryAuthFailed from err
         except JdSmartCannotConnectError as err:
             if self.data is None:
                 raise ConfigEntryNotReady from err
@@ -105,6 +123,7 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
 
     async def async_control_streams(self, commands: dict[str, object]) -> None:
         """Control streams and refresh state."""
+        stale_tgt = self.client.credentials.tgt
         try:
             snapshot = await self.client.async_control_streams(self.feed_id, commands)
         except JdSmartAuthError as err:
@@ -116,14 +135,28 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
                 err,
             )
             try:
-                await self._async_refresh_token()
+                await self._async_refresh_token(stale_tgt)
                 snapshot = await self.client.async_control_streams(
                     self.feed_id,
                     commands,
                 )
+            except JdSmartTokenRefreshAuthError as refresh_err:
+                self._async_create_reauth_notification()
+                self.config_entry.async_start_reauth(self.hass)
+                raise ConfigEntryAuthFailed from refresh_err
             except JdSmartAuthError as refresh_err:
                 self._async_create_reauth_notification()
+                self.config_entry.async_start_reauth(self.hass)
                 raise ConfigEntryAuthFailed from refresh_err
+            except JdSmartTokenRefreshCannotConnectError as refresh_err:
+                raise UpdateFailed(
+                    "Unable to refresh JD Smart authentication"
+                ) from refresh_err
+            except JdSmartTokenRefreshError as refresh_err:
+                self._async_create_token_refresh_failed_notification(refresh_err)
+                raise UpdateFailed(
+                    "Unable to refresh JD Smart authentication"
+                ) from refresh_err
             except JdSmartError as refresh_err:
                 LOGGER.warning(
                     "JD Smart control failed after token refresh: "
@@ -142,33 +175,49 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
             )
             raise UpdateFailed("Unable to control JD Smart") from err
         if snapshot is not None:
+            snapshot = self._merge_control_snapshot(snapshot)
+            snapshot = self._validate_snapshot(snapshot)
             self.async_set_updated_data(self._handle_update_success(snapshot))
         self.trigger_fast_polling()
         await self.async_request_refresh()
 
-    async def _async_refresh_token(self) -> None:
+    async def _async_refresh_token(self, stale_tgt: str | None = None) -> None:
         """Refresh token and persist the refreshed values."""
-        async with self._token_refresh_lock:
-            try:
-                new_tgt, new_cookie = await self.client.async_refresh_token()
-            except JdSmartTokenRefreshError as err:
-                LOGGER.exception("JD Smart token refresh failed")
-                self._async_create_token_refresh_failed_notification(err)
-                raise
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data={
-                    **self.config_entry.data,
-                    CONF_TGT: new_tgt,
-                    CONF_COOKIE: new_cookie,
-                },
-            )
+        new_tgt, new_cookie = await self.client.async_refresh_token(stale_tgt)
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data={
+                **self.config_entry.data,
+                CONF_TGT: new_tgt,
+                CONF_COOKIE: new_cookie,
+            },
+        )
+
+    def _validate_snapshot(self, snapshot: JdSmartSnapshot) -> JdSmartSnapshot:
+        """Validate device availability and preserve unchanged snapshots."""
+        if snapshot.status == "0":
+            raise JdSmartCannotConnectError("JD Smart device is offline")
+        if snapshot.streams:
+            return snapshot
+        if self.data is not None and snapshot.digest in {"", self.data.digest}:
+            return self.data
+        raise JdSmartCannotConnectError("JD Smart snapshot did not include streams")
+
+    def _merge_control_snapshot(self, snapshot: JdSmartSnapshot) -> JdSmartSnapshot:
+        """Merge partial control responses into the latest full snapshot."""
+        if self.data is None:
+            return snapshot
+        return JdSmartSnapshot(
+            digest=snapshot.digest or self.data.digest,
+            status=snapshot.status or self.data.status,
+            from_device_success=snapshot.from_device_success,
+            streams={**self.data.streams, **snapshot.streams},
+        )
 
     def _handle_update_success(self, snapshot: JdSmartSnapshot) -> JdSmartSnapshot:
         """Record a successful update and return its snapshot."""
         self._consecutive_update_failures = 0
         self._last_successful_update = dt_util.utcnow()
-        self._update_unavailable_logged = False
         return snapshot
 
     def _handle_update_failure(self, err: JdSmartError) -> JdSmartSnapshot:
@@ -178,12 +227,7 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
         if self.data is not None and self._last_successful_update is not None:
             stale_for = now - self._last_successful_update
             if stale_for < UPDATE_FAILURE_GRACE_PERIOD:
-                log = (
-                    LOGGER.warning
-                    if self._consecutive_update_failures == 1
-                    else LOGGER.debug
-                )
-                log(
+                LOGGER.debug(
                     "JD Smart update failed; retaining cached snapshot: "
                     "feed_id=%s, failures=%s, stale_for=%s, error_type=%s, error=%s",
                     self.feed_id,
@@ -193,18 +237,9 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
                     err,
                 )
                 return self.data
-
-        log = LOGGER.warning if not self._update_unavailable_logged else LOGGER.debug
-        log(
-            "JD Smart update failed; marking entities unavailable: "
-            "feed_id=%s, failures=%s, error_type=%s, error=%s",
-            self.feed_id,
-            self._consecutive_update_failures,
-            err.__class__.__name__,
-            err,
-        )
-        self._update_unavailable_logged = True
-        raise UpdateFailed("Unable to update JD Smart") from err
+        raise UpdateFailed(
+            f"Unable to update JD Smart after {self._consecutive_update_failures} failures"
+        ) from err
 
     @callback
     def _async_create_reauth_notification(self) -> None:

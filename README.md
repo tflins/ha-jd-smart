@@ -160,16 +160,11 @@ new device mapping. Do not post authentication data.
 Validate source and JSON files locally:
 
 ```bash
+python3 -m pip install --no-deps homeassistant==2025.3.4
+python3 -m pip install -r requirements-test.txt
+python3 -m unittest discover -s tests
 python3 -m compileall -q custom_components/jd_smart tools tests
 bash -n tools/reauth.sh
-python3 -m unittest tests/test_capture_auth.py
-```
-
-The API and config-flow tests require the Home Assistant Python environment:
-
-```bash
-PYTHONPATH=/path/to/home-assistant-config python3 -m unittest \
-  tests/test_api.py tests/test_config_flow.py
 ```
 
 GitHub Actions also runs HACS and Hassfest validation.

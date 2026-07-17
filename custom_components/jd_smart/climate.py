@@ -74,12 +74,7 @@ class JdSmartClimate(JdSmartEntity, ClimateEntity):
     """JD Smart climate entity."""
 
     _attr_name = None
-    _attr_supported_features = (
-        ClimateEntityFeature.TARGET_TEMPERATURE
-        | ClimateEntityFeature.FAN_MODE
-        | ClimateEntityFeature.PRESET_MODE
-        | ClimateEntityFeature.SWING_MODE
-    )
+    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_min_temp = 18
     _attr_max_temp = 32
@@ -100,6 +95,20 @@ class JdSmartClimate(JdSmartEntity, ClimateEntity):
     def __init__(self, coordinator) -> None:
         """Initialize climate."""
         super().__init__(coordinator, "climate")
+        features = ClimateEntityFeature.TARGET_TEMPERATURE
+        if "mark" in self.streams:
+            features |= ClimateEntityFeature.FAN_MODE
+        else:
+            self._attr_fan_modes = None
+        if "sleepmode" in self.streams:
+            features |= ClimateEntityFeature.PRESET_MODE
+        else:
+            self._attr_preset_modes = None
+        if "verdir" in self.streams:
+            features |= ClimateEntityFeature.SWING_MODE
+        else:
+            self._attr_swing_modes = None
+        self._attr_supported_features = features
 
     @property
     def current_temperature(self) -> float | None:
