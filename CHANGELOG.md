@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.3
+
+- Keep the last successful device snapshot for up to five minutes during
+  transient JD cloud or network failures before marking entities unavailable.
+- Reduce repeated update warnings and include the request path and underlying
+  exception details in connection errors.
+
 ## 0.3.2
 
 - Only request Home Assistant reauthentication for explicit authentication

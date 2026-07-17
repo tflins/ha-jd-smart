@@ -733,9 +733,10 @@ class JdSmartClient:
         headers: dict[str, str],
     ) -> dict[str, Any]:
         """POST JSON and parse response."""
+        path = url.split("?", 1)[0]
         LOGGER.debug(
             "JD Smart request: path=%s, body_length=%s",
-            url.split("?", 1)[0],
+            path,
             len(raw_body),
         )
         try:
@@ -745,14 +746,14 @@ class JdSmartClient:
                 text = await response.text()
                 LOGGER.debug(
                     "JD Smart response: path=%s, http_status=%s, body_length=%s",
-                    url.split("?", 1)[0],
+                    path,
                     response.status,
                     len(text),
                 )
                 if response.status != HTTPStatus.OK:
                     LOGGER.warning(
                         "JD Smart HTTP error: path=%s, http_status=%s, body=%s",
-                        url.split("?", 1)[0],
+                        path,
                         response.status,
                         _truncate(text),
                     )
@@ -764,7 +765,9 @@ class JdSmartClient:
                         headers=response.headers,
                     )
         except (ClientError, TimeoutError) as err:
-            raise JdSmartCannotConnectError from err
+            raise JdSmartCannotConnectError(
+                f"JD Smart request failed: path={path}, error={err!r}"
+            ) from err
 
         try:
             payload = json.loads(text)
@@ -780,7 +783,7 @@ class JdSmartClient:
             error_info = error.get("errorInfo", "JD Smart API error")
             LOGGER.warning(
                 "JD Smart API error: path=%s, code=%s, info=%s, status=%s",
-                url.split("?", 1)[0],
+                path,
                 error_code,
                 error_info,
                 payload.get("status"),
@@ -791,7 +794,7 @@ class JdSmartClient:
         if payload.get("status") not in (0, "0"):
             LOGGER.warning(
                 "JD Smart unexpected status: path=%s, status=%s, payload=%s",
-                url.split("?", 1)[0],
+                path,
                 payload.get("status"),
                 _truncate(json.dumps(payload, ensure_ascii=False)),
             )
