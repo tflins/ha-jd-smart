@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import socket
 import unittest
+from unittest.mock import patch, sentinel
 
 from bootstrap import install_optional_ha_stubs
 
@@ -11,6 +13,7 @@ install_optional_ha_stubs()
 
 from custom_components.jd_smart.config_flow import (  # noqa: E402
     _clean_input,
+    _client_from_data,
     _parse_capture_json,
     _same_account,
 )
@@ -82,6 +85,19 @@ class CaptureImportTests(unittest.TestCase):
                 {"cookie": "pin=second; wskey=token"},
             )
         )
+
+    def test_client_uses_ipv4_home_assistant_session(self) -> None:
+        """JD requests avoid Home Assistant's dual-stack DNS lookup path."""
+        hass = sentinel.hass
+        data = _clean_input({"cookie": "pin=test; wskey=token", "tgt": "token"})
+
+        with patch(
+            "custom_components.jd_smart.config_flow.async_get_clientsession",
+            return_value=sentinel.session,
+        ) as get_session:
+            _client_from_data(hass, data)
+
+        get_session.assert_called_once_with(hass, family=socket.AF_INET)
 
 
 if __name__ == "__main__":

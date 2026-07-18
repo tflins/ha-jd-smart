@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import socket
+
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -46,7 +48,7 @@ PLATFORMS: list[Platform] = [
 async def async_setup_entry(hass: HomeAssistant, entry: JdSmartConfigEntry) -> bool:
     """Set up JD Smart from a config entry."""
     client = JdSmartClient(
-        async_get_clientsession(hass),
+        async_get_clientsession(hass, family=socket.AF_INET),
         JdSmartCredentials(
             cookie=entry.data[CONF_COOKIE],
             tgt=entry.data[CONF_TGT],

@@ -13,6 +13,7 @@ from custom_components.jd_smart.api import (  # noqa: E402
     JdSmartSnapshot,
 )
 from custom_components.jd_smart.coordinator import JdSmartCoordinator  # noqa: E402
+from homeassistant.helpers.update_coordinator import UpdateFailed  # noqa: E402
 
 
 def _snapshot(
@@ -70,3 +71,15 @@ class CoordinatorSnapshotTests(unittest.TestCase):
 
         self.assertEqual(result.streams, {"Power": "1", "Mode": "2"})
         self.assertEqual(result.digest, "new")
+
+    def test_initial_connection_failure_uses_standard_update_error(self) -> None:
+        """First refresh failures must retain the underlying connection reason."""
+        coordinator = _coordinator()
+
+        with self.assertRaisesRegex(
+            UpdateFailed,
+            "Unable to update JD Smart after 1 failures: DNS lookup timed out",
+        ):
+            coordinator._handle_update_failure(  # noqa: SLF001
+                JdSmartCannotConnectError("DNS lookup timed out")
+            )

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.5
+
+- Use Home Assistant's IPv4 HTTP connector for JD endpoints to avoid persistent
+  dual-stack DNS resolver failures in Home Assistant Container installations.
+- Route initial connection failures through the coordinator's standard update
+  failure handling instead of logging them as unexpected exceptions.
+- Include the underlying connection reason in terminal update failure logs.
+
 ## 0.3.4
 
 - Distinguish transient WJLogin failures from rejected credentials so temporary

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.components import persistent_notification
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -85,8 +85,6 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
             LOGGER.info("JD Smart snapshot authentication failed; refreshing token")
             return await self._async_refresh_and_retry(digest, stale_tgt)
         except JdSmartCannotConnectError as err:
-            if self.data is None:
-                raise ConfigEntryNotReady from err
             return self._handle_update_failure(err)
         except JdSmartError as err:
             return self._handle_update_failure(err)
@@ -98,8 +96,6 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
         try:
             await self._async_refresh_token(stale_tgt)
         except JdSmartTokenRefreshCannotConnectError as err:
-            if self.data is None:
-                raise ConfigEntryNotReady from err
             return self._handle_update_failure(err)
         except JdSmartTokenRefreshAuthError as err:
             self._async_create_reauth_notification()
@@ -115,8 +111,6 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
             self._async_create_reauth_notification()
             raise ConfigEntryAuthFailed from err
         except JdSmartCannotConnectError as err:
-            if self.data is None:
-                raise ConfigEntryNotReady from err
             return self._handle_update_failure(err)
         except JdSmartError as err:
             return self._handle_update_failure(err)
@@ -237,8 +231,10 @@ class JdSmartCoordinator(DataUpdateCoordinator[JdSmartSnapshot]):
                     err,
                 )
                 return self.data
+        reason = str(err) or err.__class__.__name__
         raise UpdateFailed(
-            f"Unable to update JD Smart after {self._consecutive_update_failures} failures"
+            "Unable to update JD Smart after "
+            f"{self._consecutive_update_failures} failures: {reason}"
         ) from err
 
     @callback

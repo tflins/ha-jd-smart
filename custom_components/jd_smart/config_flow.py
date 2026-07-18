@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import socket
 from typing import Any
 from urllib.parse import unquote
 
@@ -211,7 +212,7 @@ def _parse_capture_json(raw_value: str) -> dict[str, Any]:
 def _client_from_data(hass: HomeAssistant, data: dict[str, Any]) -> JdSmartClient:
     """Build an API client from config flow data."""
     return JdSmartClient(
-        async_get_clientsession(hass),
+        async_get_clientsession(hass, family=socket.AF_INET),
         JdSmartCredentials(
             cookie=data[CONF_COOKIE],
             tgt=data[CONF_TGT],
